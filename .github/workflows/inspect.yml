@@ -54,6 +54,54 @@ jobs:
           done
           test "$(ls out/javap | wc -l)" -gt 0
 
+      - name: Export targeted javap
+        run: |
+          mkdir -p out/targeted
+          : > out/targeted/MISSING.txt
+          : > out/targeted/FOUND.txt
+          # A target matches its own javap file and its inner classes (Name_*.txt).
+          for n in Il1I Il_l_III1_II Il_l I1Il I101 IOIl IO_l II0l II1I IOOo; do
+            found=0
+            for f in out/javap/"$n".txt out/javap/"$n"_*.txt; do
+              if [ -f "$f" ]; then
+                cp "$f" out/targeted/
+                echo "$(basename "$f")" >> out/targeted/FOUND.txt
+                found=1
+              fi
+            done
+            if [ "$found" -eq 0 ]; then
+              echo "$n" >> out/targeted/MISSING.txt
+              echo "::warning::Target class not found: $n"
+            fi
+          done
+          sort -u -o out/targeted/FOUND.txt out/targeted/FOUND.txt
+          echo "found:"; cat out/targeted/FOUND.txt
+          echo "missing:"; cat out/targeted/MISSING.txt
+          # Fail if no real bytecode was exported.
+          test "$(grep -c . out/targeted/FOUND.txt)" -gt 0
+          for f in $(cat out/targeted/FOUND.txt); do test -s "out/targeted/$f"; done
+
+      - name: Create and verify NRO-Targeted-Javap.zip
+        run: |
+          (cd out && zip -qr ../NRO-Targeted-Javap.zip targeted)
+          test -s NRO-Targeted-Javap.zip
+          unzip -t NRO-Targeted-Javap.zip > /dev/null
+          ls -l NRO-Targeted-Javap.zip
+          # Truncation check: every file on disk must be listed with its full size.
+          python3 - <<'PY'
+          import zipfile, os
+          z = zipfile.ZipFile('NRO-Targeted-Javap.zip')
+          assert z.testzip() is None, 'corrupt entry'
+          disk = {}
+          for r, _, fs in os.walk('out/targeted'):
+              for f in fs:
+                  p = os.path.join(r, f)
+                  disk['targeted/' + os.path.relpath(p, 'out/targeted')] = os.path.getsize(p)
+          zipped = {i.filename: i.file_size for i in z.infolist() if not i.is_dir()}
+          assert disk == zipped, 'zip content differs from disk (truncated?)'
+          print('ZIP OK:', len(zipped), 'files,', sum(zipped.values()), 'bytes')
+          PY
+
       - name: Collect reports
         run: |
           # grep exit 1 = no match (allowed); exit >=2 = real error.
@@ -134,4 +182,10 @@ jobs:
         with:
           name: NRO-Inspection
           path: NRO-Inspection.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NRO-Targeted-Javap
+          path: NRO-Targeted-Javap.zip
           if-no-files-found: error
