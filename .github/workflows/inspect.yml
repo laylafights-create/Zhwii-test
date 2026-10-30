@@ -1,0 +1,45 @@
+
+name: Inspect NRO Offline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Extract and inspect
+        run: |
+          mkdir -p extracted report
+          unzip -o NRO-Offline-1.0.4.jar -d extracted
+
+          echo "=== IOoo CLASS ===" > report/classes.txt
+          javap -classpath extracted -c -p IOoo \
+            >> report/classes.txt 2>&1 || true
+
+          echo "=== DATA INPUT STREAM METHODS ===" \
+            > report/handlers.txt
+
+          find extracted -name '*.class' | while read file; do
+            class=$(echo "$file" | sed 's#extracted/##; s#/#.#g; s#\.class$##')
+            javap -classpath extracted -c -p "$class" 2>/dev/null |
+              grep -B 5 -A 30 'DataInputStream' \
+              >> report/handlers.txt || true
+          done
+
+      - name: Upload inspection report
+        uses: actions/upload-artifact@v4
+        with:
+          name: NRO-Inspection
+          path: report/
+          
